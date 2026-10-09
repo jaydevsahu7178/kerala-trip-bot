@@ -40,17 +40,52 @@ public class TelegramTripBot {
             }
             HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
             server.createContext("/", exchange -> {
-                String resp = "Kerala Telegram Trip Bot is Active & Running 24/7!";
+                String resp = "Kerala Telegram & WhatsApp Trip Bot is Active & Running 24/7!";
                 exchange.sendResponseHeaders(200, resp.length());
                 OutputStream os = exchange.getResponseBody();
                 os.write(resp.getBytes());
                 os.close();
             });
+
+            // Twilio WhatsApp Webhook Handler (No PC needed!)
+            server.createContext("/whatsapp", exchange -> {
+                if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    InputStream is = exchange.getRequestBody();
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8));
+                    StringBuilder body = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) body.append(line);
+
+                    Map<String, String> params = parseFormData(body.toString());
+                    String incomingMsg = params.getOrDefault("Body", "").trim();
+                    System.out.println("📩 WhatsApp query via Twilio: " + incomingMsg);
+
+                    String reply = getAnswerForQuery(incomingMsg);
+                    String twiml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+                                   "<Response>\n" +
+                                   "    <Message>" + escapeXml(reply) + "</Message>\n" +
+                                   "</Response>";
+
+                    byte[] bytes = twiml.getBytes(StandardCharsets.UTF_8);
+                    exchange.getResponseHeaders().set("Content-Type", "application/xml; charset=UTF-8");
+                    exchange.sendResponseHeaders(200, bytes.length);
+                    OutputStream os = exchange.getResponseBody();
+                    os.write(bytes);
+                    os.close();
+                } else {
+                    String ok = "Twilio WhatsApp Webhook endpoint is healthy!";
+                    exchange.sendResponseHeaders(200, ok.length());
+                    OutputStream os = exchange.getResponseBody();
+                    os.write(ok.getBytes());
+                    os.close();
+                }
+            });
+
             server.setExecutor(null);
             server.start();
-            System.out.println("🌐 Cloud Web Health Server listening on port " + port);
+            System.out.println("🌐 Cloud Web Server (Telegram + WhatsApp) listening on port " + port);
         } catch (Exception e) {
-            System.err.println("Could not start HTTP health server: " + e.getMessage());
+            System.err.println("Could not start HTTP server: " + e.getMessage());
         }
 
         // Run Telegram Long-Polling Loop
@@ -289,5 +324,29 @@ public class TelegramTripBot {
             else if (sb.length() > 0) break;
         }
         try { return Long.parseLong(sb.toString()); } catch (Exception e) { return 0; }
+    }
+
+    private static Map<String, String> parseFormData(String formData) {
+        Map<String, String> map = new HashMap<>();
+        if (formData == null || formData.isEmpty()) return map;
+        String[] pairs = formData.split("&");
+        for (String pair : pairs) {
+            int idx = pair.indexOf("=");
+            try {
+                String key = idx > 0 ? URLDecoder.decode(pair.substring(0, idx), "UTF-8") : pair;
+                String value = idx > 0 && pair.length() > idx + 1 ? URLDecoder.decode(pair.substring(idx + 1), "UTF-8") : "";
+                map.put(key, value);
+            } catch (Exception ignored) {}
+        }
+        return map;
+    }
+
+    private static String escapeXml(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&apos;");
     }
 }
